@@ -97,9 +97,9 @@ kernel = args.output + '.kernel~'
 open(kernel, 'wb').write(gzip.compress(blob, 6) + dtb)
 try:
     subprocess.check_call([
-        sys.executable, os.path.join(MU, 'Resources', 'Scripts', 'mkbootimg.py'),
+        sys.executable, os.path.join(ROOT, 'devices', 'redwood', 'prebuilt', 'mkbootimg.py'),
         '--kernel', kernel,
-        '--ramdisk', os.path.join(MU, 'Resources', 'ramdisk'),
+        '--ramdisk', os.path.join(ROOT, 'devices', 'redwood', 'prebuilt', 'ramdisk'),
         '--header_version', '1',
         '-o', args.output,
     ])
