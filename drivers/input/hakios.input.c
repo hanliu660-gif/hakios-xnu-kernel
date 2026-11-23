@@ -283,7 +283,15 @@ hakios_input_init(void)
 	exit_call = thread_call_allocate(exit_hold_elapsed, NULL);
 	hakios_cpufreq_init();
 	hakios_virtio_input_init();
+	/*
+	 * Both touch drivers ask the same boot-arg (touchscreen=1) but speak to different parts on different
+	 * pins, and each returns at once when its chip does not answer: goodix probes the POCO X5 Pro's
+	 * Goodix GT9916 / FocalTech FT3680, psyche_touch the Xiaomi 12X's ST FTS V521. On the 12X the
+	 * goodix probe finds nothing (no line of its in the log of the run that first worked, 2 November)
+	 * and psyche_touch goes on to read the panel.
+	 */
 	hakios_goodix_init();
+	hakios_psyche_touch_init();
 	hakios_buttons_init();
 	hakios_battery_init();
 	hakios_ufs_init();

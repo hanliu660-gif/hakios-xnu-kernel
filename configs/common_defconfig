@@ -59,7 +59,7 @@ CONFIG_HAKIOS_HAPTIC=y
 CONFIG_HAKIOS_VIRTIO_INPUT=y
 
 # the touch screen of the Xiaomi 12X (psyche): ST FTS V521 on SPI (touchscreen=1) [hakios.psyche_touch.c]
-CONFIG_HAKIOS_PSYCHE_TOUCH=n
+CONFIG_HAKIOS_PSYCHE_TOUCH=y
 
 # the touch screen: a Goodix GT9916 ("Berlin-D") or a FocalTech FT3680 on SPI (touchscreen=1). The bus, pins and ... [hakios.goodix.c]
 CONFIG_HAKIOS_GOODIX=y

@@ -17,3 +17,8 @@ driver GOODIX
 driver BUTTONS
 	file    bsd/dev/hakios.buttons.c
 	help    the power and volume keys, read from the PMIC through the SPMI arbiter (buttons=1)
+
+driver PSYCHE_TOUCH
+	file    bsd/dev/hakios.psyche_touch.c
+	help    the touch screen of the Xiaomi 12X -- psyche / SM8250-AC kona -- an ST FTS V521 on SPI (touchscreen=1)
+	help    The bus and pins are psyche's; another phone with this controller changes those

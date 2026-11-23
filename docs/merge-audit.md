@@ -111,3 +111,38 @@ Two things the export script had to learn, both found by it refusing to run:
 - `hakios.sbl.c` (2,674,605 bytes) is a firmware image that was tried and then folded into the driver
   that ships it: `bsd/conf/files` never built it. It is excluded by name rather than left to look like a
   driver nobody wired up.
+
+## psyche's touch: three links of a chain, all of them broken
+
+The Xiaomi 12X's touch screen worked on 2 November — `logs/153459-run.log` has `touches=14955` with
+coordinates spread across the panel, `last=(454,2258)`, `last=(3586,3233)` — and it was the third of
+three separate things that made the merged tree unable to repeat it. None of them is a merge conflict;
+each is a link that was never written down.
+
+1. **`drivers/input/conf` had no `driver PSYCHE_TOUCH`.** `hakios.psyche_touch.c` was listed in
+   `drivers/map` (the export script's index of where each file goes) but never declared to the
+   configuration system, so `CONFIG_HAKIOS_PSYCHE_TOUCH` named nothing, and `hakios-config.py check`
+   could not have told anyone: a symbol no `conf` declares is not an error, it is simply never built.
+   The block is now in `drivers/input/conf`, word for word as the bring-up tree had it.
+
+2. **`hakios_input_init()` never called `hakios_psyche_touch_init()`.** It called `hakios_goodix_init()`
+   and `hakios_buttons_init()` and stopped. The bring-up tree's own log is the evidence, and it is
+   measured rather than read: `llvm-objdump -r` on the object built from the merged
+   `bsd/dev/hakios.input.c` now lists `ARM64_RELOC_BRANCH26 _hakios_psyche_touch_init` at offset
+   `0x4d4`, between `_hakios_goodix_init` at `0x4d0` and `_hakios_buttons_init` at `0x4d8`. Before the
+   fix that relocation was not there at all — `git show HEAD:drivers/input/hakios.input.c` has no
+   occurrence of the name.
+
+3. **`CONFIG_HAKIOS_PSYCHE_TOUCH=n`.** It is `y` now. A driver whose symbol a `.config` does not name
+   is built (`hakios-config.py`: `config.get(d.symbol, d.default) == "y"`, and `Driver.default` is `y`),
+   which is why the 2 November run's log says *26 drivers built in (the drivers' defaults (no .config))*
+   and lists `psyche_touch` among them. A `.config` that names it `n` is the only way to leave it out,
+   and this one did.
+
+Both touch drivers read `touchscreen=1` and both return at once when their chip does not answer. On the
+12X the Goodix probe finds nothing — that run's log has no line from it — and psyche_touch goes on to
+read the FTS V521. The two are therefore started one after the other, not chosen between.
+
+The three fixes were carried to the Linux build tree by `_audit/sync-touch-fix.sh` and built by
+`_audit/build-touch.sh`; the kernel that came out is 22,344,256 bytes and `_hakios_psyche_touch_init`
+is in its symbol table. What has *not* been done is running it on the phone.
