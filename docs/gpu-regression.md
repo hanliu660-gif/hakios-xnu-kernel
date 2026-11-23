@@ -1,5 +1,10 @@
 # The GPU that stopped after a hundred submissions
 
+> **Conflict, 24 November 04:22.** This page says the 22,341,416-byte kernel fails at
+> submission 101 with `worked 0 us`. That exact file (md5 0b7957f0b463e9dd30a5db808c97a477)
+> ran 1667 submissions at 573 us each on the phone, no `no answer` — see STATUS.md and
+> logs/042229-run.log:7881. The experiment record below stands; its attribution does not.
+
 On 19 November the Adreno 642L of `redwood` worked, then stopped: `gpu: no answer: submission 101 is
 the last, the core has done 33`, with `status 0xd70d85` — CP, RB, CCU, SP and LRZ all busy — and
 `HakiosGPU` reporting `the GPU worked 0 us on each of 0`. The window server kept drawing, because

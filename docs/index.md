@@ -1,5 +1,7 @@
 # HakiOS
 
+> **On this machine, read [STATUS.md](../STATUS.md) first.** It is the only page here whose claims are all backed by a log in `logs/`; anything under docs/ that contradicts it is history or archived.
+
 **Apple's open-source Darwin kernel (XNU) on Android phones**, the way Android is Linux on phones: a boot loader of its own, drivers of
 its own, a configuration system and a version of its own. The same kernel runs in QEMU with nothing of Apple's and nothing of any
 phone's.
@@ -62,7 +64,7 @@ on the Adreno 642L, at 100 to 104 frames a second in page swipes on a 120 Hz pan
 | [Boot arguments](boot-args.md) | every argument any part of the system reads, made from the source |
 | [Commands](reference/tools.md) | `make` targets and the scripts below them |
 | [What the GPU did once](gpu-regression.md) | a driver that lost an eighth of itself, and the byte counts that found it |
-| [Where each fix lived](merge-audit.md) | three lines of the work compared by path and by length, and what merging them kept |
+| [Where each fix lived](archive/20261124-wrong-conclusions/merge-audit.md) | archived 24 November: the three-line comparison is measurement, its conclusions about the phone are not; see [STATUS](../STATUS.md) |
 
 ## The project
 
