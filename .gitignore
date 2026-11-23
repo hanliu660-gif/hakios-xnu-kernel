@@ -28,6 +28,7 @@
 !/docs/
 !/xl
 !/mkxnuimg.py
+!/mkxnuimg-psyche.py
 !/xnu-build.sh
 !/xnu-env.sh
 !/xnuloader/

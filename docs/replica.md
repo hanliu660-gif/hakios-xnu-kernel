@@ -54,10 +54,15 @@ WSL 内（仓库在 /root/hakios，或自行挂载路径）：
     export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/root/theos/toolchain/linux/iphone/bin
     bash tools/make-kernel.sh -j12          # -> hakios-kernel
 
-Windows / WSL 均可：
+WSL（BootShim 现编要 clang/llvm-objcopy；实机验证过的默认值不用改）：
 
     cd xnuloader && bash build.sh           # -> loader.efi（identity.h 已在则直接编）
-    python3 mkxnuimg.py -o ../xnu.img       # FD 用 devices/redwood/prebuilt/SILICIUM_UEFI_psyche.fd
+    cd .. && export CC=/usr/bin/clang-18 OBJCOPY=/usr/bin/llvm-objcopy-18
+    python3 mkxnuimg-psyche.py -o xnu.img   # psyche 专用打包器（FD_BASE=0x9FC00000）
+    # 默认 FD = prebuilt/SILICIUM_UEFI.fd（thyme，11-03/11-24 实机成功款，md5 2acd6396）；
+    # psyche 变体 FD = SILICIUM_UEFI_psyche.md5 513fa373，用 --fd 换上做诊断。
+    # 已逐段对比黄金参照（顶层 11-03 xnu.img）：shim/FD/DTB/ramdisk 全等。
+    # mkxnuimg.py（redwood 默认 FD_BASE=0x9FD00000）打出的镜像 psyche 不要用。
 
 ## 6. 跑机（= STATUS.md 配方，此处为完整抄录）
 
