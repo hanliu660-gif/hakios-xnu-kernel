@@ -143,6 +143,77 @@ Both touch drivers read `touchscreen=1` and both return at once when their chip 
 12X the Goodix probe finds nothing — that run's log has no line from it — and psyche_touch goes on to
 read the FTS V521. The two are therefore started one after the other, not chosen between.
 
-The three fixes were carried to the Linux build tree by `_audit/sync-touch-fix.sh` and built by
-`_audit/build-touch.sh`; the kernel that came out is 22,344,256 bytes and `_hakios_psyche_touch_init`
-is in its symbol table. What has *not* been done is running it on the phone.
+## On the phone, 24 November: what the three fixes did and did not do
+
+The three were carried to the Linux build tree by `_audit/sync-touch-fix.sh`, built by
+`_audit/build-touch.sh`, and run. The short answer: the driver now gets further than it has ever got on
+this tree, and the machine still does not survive a run with `touchscreen=1` for long enough to count a
+touch. Every line below is from a log in `logs/`.
+
+**It is compiled, called, and reaches the chip.** `logs/021451-run.log`, `021854-run.log` and
+`025451-run.log` all contain the whole sequence, the first time on this tree:
+
+```
+psyche_touch: serial engine 0x101, interface 0, params 0x20102864, source 19200000 Hz
+psyche_touch: vdd already on
+psyche_touch: avdd already on
+psyche_touch: supplies ready
+psyche_touch: system info header ok, data id 01
+psyche_touch: chip id 3640, fw ver 0016, config ver 0018
+psyche_touch: afe ver cfg 07 cx 07 panel 07, protocol 06
+psyche_touch: controller ready (GENI)
+psyche_touch: sensing started (scan mode active)
+psyche_touch: 125 Hz polling, 10 touches max, raw x 1870..9300 y 1285..23065 -> 1080x2400
+psyche_touch: touch the screen now
+```
+
+Those runs used `hakios-kernel.full-1119` (the 19 November kernel, 22,341,416 bytes), not the kernel
+built from this commit, because that is the kernel the comparison needed.
+
+**Where the chain breaks now: the supplies.** `touch_step=N` panics at checkpoint N of `power_on()` and
+hands the machine back to the loader with the log written out, so a checkpoint that never answers is the
+one that took the machine with it:
+
+| `touch_step` | result |
+|---|---|
+| 1 | `returned 20283` |
+| 2 | `returned 20297` |
+| 3 | no answer |
+
+Checkpoint 3 sits after `rpmh_read(0x41200 + VRM_ENABLE)`. Checkpoints 1 and 2 are the first rail and
+came back; the second never did.
+
+**Why: nothing on the normal path mapped the RPMH window.** `gcc`, `se`, `rsc` and `cmddb` are
+file-scope and start at zero, and only the experimental entry points (`do_0xa7clk`, `do_probe0xa7`,
+`do_powerseq` and the rest) ever set them. `TCS(reg)` is `rsc + 0xd00 + reg`, so with `rsc` zero the
+sequencer command was written at `0xd00` — the vectors, not the RSC. `power_on()` did not test `rsc`
+before writing; every other entry point did. Both are fixed in `58741f9`: the normal path maps the pin
+tiles, GCC and the RSC before it uses them, and `power_on()` returns early when there is no window.
+
+**What is still open.** The kernel built with that fix still does not come back with `touchscreen=1`, and
+the failure is now silent rather than a null store, so the mapping was not the only thing. The same
+kernel with plain `-v` returns normally (`logs/013531-run.log`, `returned 14049`), and `-v touchscreen=1`
+does not; the difference is the touch driver and nothing else.
+
+Runs that were tried, to save the next person the time:
+
+| kernel | ramdisk | arguments | result |
+|---|---|---|---|
+| 19 Nov | `hello` | `-v touchscreen=1` | returned, `sensing started`, no `touches=` line |
+| 19 Nov | `hello` | `-v touchscreen=1 touch_fifowatch=1` | no answer |
+| 19 Nov | `root.apfs` | `rd=md0 -v touchscreen=1` | no answer |
+| 19 Nov | none | `-v touchscreen=1` | no answer |
+| 24 Nov | `hello` | `-v` | returned 14049 |
+| 24 Nov | `hello` | `-v touchscreen=1` | no answer |
+| 24 Nov | `hello` | `-v touchscreen=1 touch_step=1,2,3` | see the table above |
+
+Only the combination that ends within five seconds — `hello`, which is process 1 and exits — comes back
+at all. Every run that would have kept the driver polling (a real user space, `fifowatch`, no ramdisk)
+stops the machine. That is consistent with the 2 November logs, which show `touches=14955` from a run
+whose user space stayed up: the poll thread is where this dies, and the `touches=` counter is never
+reached now. The next step is the poll thread itself — `fts_thread` and what it does per iteration —
+not the supplies.
+
+The kernel in this tree is 22,344,256 bytes and carries all of the above. The regression it represents
+against 2 November is real and not yet explained; nothing in this document claims otherwise.
+
