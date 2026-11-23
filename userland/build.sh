@@ -150,6 +150,8 @@ if [ -n "$PREBUILT" ]; then
 	cp obj/hello hello
 else
 	$CC $LD -o hello src/hello.c
+	# process 1 when this image is the root itself: written like hello.c, not against libmini (see the file)
+	$CC $LD -o obj/launchd_small src/launchd_small.c
 	$CC -Ilibmini -c libmini/mini.c -o obj/mini.o
 	$CC -c libmini/start.S -o obj/start.o
 	for prog in init child stage0 var_store; do
@@ -362,6 +364,10 @@ if [ -d $DARWIN/rootfs/usr/lib ]; then
 	[ -f obj/wifipw_test ] && cp obj/wifipw_test root/bin/
 	[ -f obj/sound_test ] && cp obj/sound_test root/bin/
 	[ -f obj/torch_test ] && cp obj/torch_test root/bin/
+	# Process 1 when this image is the root itself (rd=md0, no system image): the kernel's init
+	# program is /sbin/launchd of the root, and without one the run dies 80 ms in -- before the
+	# drivers' threads have done anything. It waits and halts; see src/launchd_small.c.
+	[ -f obj/launchd_small ] && cp obj/launchd_small root/sbin/launchd
 	[ -f obj/camera_test ] && cp obj/camera_test root/bin/
 	[ -f obj/camera_avtest ] && cp obj/camera_avtest root/bin/
 	[ -f obj/record_test ] && cp obj/record_test root/bin/

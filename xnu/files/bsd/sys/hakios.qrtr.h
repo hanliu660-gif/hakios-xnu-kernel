@@ -41,6 +41,14 @@ struct hakios_qrtr_ops {
 	int (*lookup)(struct hakios_qrtr_port *port, uint32_t service, uint32_t version, uint32_t instance);
 	/* No callback comes after this has returned. */
 	void (*close)(struct hakios_qrtr_port *port);
+
+	/* Let a polled transport service its receive path for up to `timeout_ms`; optional. */
+	int (*poll)(struct hakios_qrtr_port *port, uint32_t timeout_ms);
+
+	/* How many times the radio was reset since boot; a service back at the same node and
+	 * port across a different number is the fresh firmware, not a replay (hakios.qmi.c).
+	 * NULL counts as a constant zero. */
+	unsigned (*generation)(void);
 };
 
 /* The transport there is; NULL takes it away (handles made before keep the one they were made with). */

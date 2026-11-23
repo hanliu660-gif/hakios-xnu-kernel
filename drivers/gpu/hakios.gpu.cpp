@@ -231,6 +231,16 @@ MiniIOSurfaceDrawn(MiniIOSurface * surface, uint64_t milliseconds)
 		IOLockLock(gGPULock);
 		done = !hakios_gpu_ready() || gpuWait(fence, milliseconds);
 		IOLockUnlock(gGPULock);
+		if (!done) {
+			/*
+			 * A fence that did not come back in the time a frame may be held is not waited for a second
+			 * time by the next frame: the surface is taken as one the GPU is done with. This is what keeps
+			 * the picture steady: the frame that was waited for is shown once, and the ones after it are
+			 * not held. (Not waiting at all -- a global "the GPU has stopped" flag -- was tried and the
+			 * screen flickered: a surface the GPU had not finished was put on the panel as if it were.)
+			 */
+			surface->drawn = 0;
+		}
 	}
 	return done;
 }

@@ -70,13 +70,20 @@ PHONE=${XDG_RUNTIME_DIR:-/tmp}/darwin-hakios-phone
 # adb starts a server of its own the first time, and the server inherits every open descriptor: started during a run it
 # kept the run's lock (descriptor 8, below) for as long as it lived, and every later command said a run was in progress
 # (27 October). So adb never gets that descriptor.
-adb() { command adb "$@" 8>&-; }
+# The two protocols name the same phone differently: adb sees its USB serial, the loader in fastboot
+# sees "xnuloader". Each wrapper takes its own variable, so neither can be given the other's and
+# neither falls back to "whichever device answers first". Set XL_ADB_SERIAL and FB_SERIAL for the
+# phone in front of you; with neither set, each falls back to the only device that answers.
+adb() { command adb ${XL_ADB_SERIAL:+-s "$XL_ADB_SERIAL"} "$@" 8>&-; }
 
 # one fastboot at a time (a run in one terminal, "xl screenshot" in another): each takes the lock for itself
-fb() { flock -w 90 $PHONE.lock timeout "${FB_TIMEOUT:-10}" fastboot "$@" 2>&1; }
+# The target is named when FB_SERIAL is set: fastboot does not read ANDROID_SERIAL, so a bare
+# invocation takes whichever device it finds first, and a second handset on the same bus is found
+# just as easily as the one this loader is meant for.
+fb() { flock -w 90 $PHONE.lock timeout "${FB_TIMEOUT:-10}" fastboot ${FB_SERIAL:+-s "$FB_SERIAL"} "$@" 2>&1; }
 # does the loader answer while its kernel runs (0.5 and later)? an older one answers only when the run is over
 live_loader() { fb getvar version | grep -Eq 'version: 0\.([5-9]|[1-9][0-9])'; }
-in_fastboot() { fastboot devices 2>/dev/null | grep -q fastboot; }
+in_fastboot() { fastboot ${FB_SERIAL:+-s "$FB_SERIAL"} devices 2>/dev/null | grep -q fastboot; }
 is_loader() { in_fastboot && fb getvar product | grep -q 'product: xnuloader'; }
 state() {
 	if is_loader; then echo loader

@@ -2,6 +2,15 @@
 # CONFIG_HAKIOS_<NAME>=y in a defconfig builds a driver into the kernel; "standard" files are always built.
 # tools/hakios-config.py reads this file; docs/drivers-config.md says what each word means and how it reaches XNU.
 
+driver PCIE
+	file    bsd/dev/hakios.pcie.c
+	file    bsd/dev/hakios.amss.c
+	file    bsd/dev/hakios.wlanfw.c
+	help    the PCI Express link to the Wi-Fi radio (pcie=1, pcie_step=N): the clocks, the PHY, the link
+	help    training, and the QCA6390's identity. psyche's radio is on PCIe0, not on the WCN6750 the WIFI
+	help    driver above is written for; the two are separate because the chip, the bus and the way the
+	help    firmware is loaded are all different
+
 driver WIFI
 	file    bsd/dev/hakios.wifi.c
 	file    bsd/dev/hakios.wlfw.c

@@ -13,6 +13,7 @@ input    bsd/dev/hakios.focaltech_fw.h
 input    bsd/dev/hakios.input.c
 input    bsd/dev/hakios.buttons.c
 input    bsd/dev/hakios.virtio_input.c
+input    bsd/dev/hakios.psyche_touch.c
 
 storage  bsd/dev/hakios.ufs.c
 storage  bsd/dev/hakios.ufshc.c
@@ -45,6 +46,9 @@ power    bsd/dev/hakios.cpufreq.c
 wifi     bsd/dev/hakios.wifi.c
 wifi     bsd/dev/hakios.wlfw.c
 wifi     bsd/dev/hakios.lx.c
+wifi     bsd/dev/hakios.pcie.c
+wifi     bsd/dev/hakios.amss.c
+wifi     bsd/dev/hakios.wlanfw.c
 wifi     bsd/dev/hakios.sta.c
 wifi     bsd/dev/hakios.apple80211.c
 wifi     iokit/Kernel/hakios.wlan.cpp

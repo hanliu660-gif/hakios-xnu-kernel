@@ -2782,6 +2782,7 @@ struct hakios_qrtr_port {
 	hakios_qrtr_receive_t receive;
 	hakios_qrtr_server_t server;
 	void *context;
+	bool announced;                         /* the services that were there before it are told */
 	struct {
 		uint32_t service, instance;     /* the instance as on the wire: version | instance << 8; 0: any */
 		bool asked;
@@ -2797,8 +2798,52 @@ static struct {
 	bool there;
 } qrtr_servers[64];
 static uint32_t qrtr_peer;                      /* the DSP's node; 0: it has not said */
+
+/*
+ * How many times the radio has been reset.  The WLFW service comes back after a reset at
+ * the very same node and port; the QMI helpers use the counter to tell that new instance
+ * from the name service replaying itself (hakios.qmi.c's qmi_server()).
+ */
+static unsigned qrtr_radio_generation;
+
+unsigned
+qrtr_radio_generation_of(void)
+{
+	return qrtr_radio_generation;
+}
+
+/* The radio is going down: its services leave with it, and the round moves on. */
+void
+hakios_wifi_qrtr_radio_reset(void)
+{
+	lck_mtx_lock(&qrtr_lock);
+	for (unsigned i = 0; i < sizeof(qrtr_servers) / sizeof(qrtr_servers[0]); i++) {
+		qrtr_servers[i].there = false;
+	}
+	qrtr_radio_generation++;
+	lck_mtx_unlock(&qrtr_lock);
+	printf("wifi: qrtr: the radio is reset: its services are forgotten (round %u)\n",
+	    qrtr_radio_generation);
+}
+/*
+ * Datagrams that arrived before the driver's port did.  Delivered the moment the port opens;
+ * eight of them, small ones, which is what the firmware says on its way up.
+ */
+#define QRTR_HELD 8u
+static struct {
+	bool used;
+	uint32_t from_node, from_port, to_port, length;
+	uint8_t bytes[2048];
+} qrtr_held[QRTR_HELD];
+static uint32_t qrtr_held_total;
 static uint32_t qrtr_next_port = QRTR_FIRST_PORT, qrtr_in, qrtr_out, qrtr_hellos;
+static uint32_t qrtr_said_in, qrtr_said_out;    /* the first datagrams, said out loud: bring-up only */
 static thread_t link_thread_is;
+
+/* The endpoint's courier (hakios.pcie.c): ath11k's QMI goes out over MHI/IPCR, not GLINK. */
+extern int hakios_pcie_radio_boot(void);
+extern int hakios_pcie_qrtr_send(uint32_t from_port, uint32_t to_node, uint32_t to_port,
+    const void *payload, uint32_t length);
 
 /* One datagram out, of any type. */
 static int
@@ -2823,7 +2868,20 @@ qrtr_out_packet(uint32_t type, uint32_t from_port, uint32_t to_node, uint32_t to
 	packet->to_node = to_node;
 	packet->to_port = to_port;
 	memcpy(packet + 1, data, length);
-	error = glink_send(packet, (uint32_t)sizeof(*packet) + padded);
+	if (hakios_wifi_option("wifi_umi") != 0) {
+		/*
+		 * This phone's radio has no GLINK: its QMI travels over the endpoint's MHI/IPCR
+		 * channels, the same ones the hand-written exchange used.
+		 */
+		error = hakios_pcie_qrtr_send(from_port, to_node, to_port, data, length);
+		if (qrtr_said_out < 30u) {
+			qrtr_said_out++;
+			printf("wifi: qrtr out: %u bytes, node %u port %u, from port %u: %d\n", length, to_node,
+			    to_port, from_port, error);
+		}
+	} else {
+		error = glink_send(packet, (uint32_t)sizeof(*packet) + padded);
+	}
 	kfree_data(packet, sizeof(*packet) + padded);
 	qrtr_out += error == 0;
 	return error;
@@ -2955,6 +3013,11 @@ qrtr_input(const uint8_t *data, uint32_t length)
 		return;
 	}
 	qrtr_in++;
+	if (qrtr_said_in < 40u) {
+		qrtr_said_in++;
+		printf("wifi: qrtr in: type %u, %u bytes, node %u port %u -> node %u port %u\n", header.type,
+		    header.size, header.from_node, header.from_port, header.to_node, header.to_port);
+	}
 	if (qrtr_peer == 0) {
 		qrtr_peer = header.from_node;
 	}
@@ -2984,13 +3047,74 @@ qrtr_input(const uint8_t *data, uint32_t length)
 	lck_mtx_unlock(&qrtr_lock);
 	if (receive != NULL) {
 		receive(context, header.from_node, header.from_port, data + at, header.size);
+		return;
 	}
+	if (header.type != QRTR_DATA) {
+		return;
+	}
+	/*
+	 * No port yet.  With the radio up ahead of the driver this is the normal case for the first
+	 * few seconds, and dropping it is what starved the driver of the requests that start its
+	 * exchange.
+	 */
+	for (unsigned h = 0; h < QRTR_HELD; h++) {
+		bool held = false;
+
+		lck_mtx_lock(&qrtr_lock);
+		if (!qrtr_held[h].used && header.size <= sizeof(qrtr_held[h].bytes)) {
+			qrtr_held[h].used = true;
+			qrtr_held[h].from_node = header.from_node;
+			qrtr_held[h].from_port = header.from_port;
+			qrtr_held[h].to_port = header.to_port;
+			qrtr_held[h].length = header.size;
+			memcpy(qrtr_held[h].bytes, data + at, header.size);
+			qrtr_held_total++;
+			held = true;
+		}
+		lck_mtx_unlock(&qrtr_lock);
+		if (held) {
+			printf("wifi: qrtr: %u bytes for port %u are held until a port opens for them\n",
+			    header.size, header.to_port);
+			return;
+		}
+	}
+	printf("wifi: qrtr: %u bytes for port %u and there is nowhere to hold them\n", header.size,
+	    header.to_port);
 }
 
 /* Lookups made since the last look are told of the services that were there before them. From the link's thread. */
 static void
 qrtr_fresh(void)
 {
+	/*
+	 * A port that opened after the firmware had already announced itself is told now.  ath11k's
+	 * QMI does not wait for a lookup's answer: it waits for this callback.
+	 */
+	for (unsigned p = 0; p < sizeof(qrtr_ports) / sizeof(qrtr_ports[0]); p++) {
+		hakios_qrtr_server_t server = NULL;
+		void *context = NULL;
+
+		lck_mtx_lock(&qrtr_lock);
+		if (qrtr_ports[p].number != 0 && !qrtr_ports[p].announced && qrtr_ports[p].server != NULL) {
+			qrtr_ports[p].announced = true;
+			server = qrtr_ports[p].server;
+			context = qrtr_ports[p].context;
+		}
+		lck_mtx_unlock(&qrtr_lock);
+		if (server == NULL) {
+			continue;
+		}
+		for (unsigned i = 0; i < sizeof(qrtr_servers) / sizeof(qrtr_servers[0]); i++) {
+			if (qrtr_servers[i].there) {
+				printf("wifi: qrtr: port %u is told of service %u at node %u port %u\n",
+				    qrtr_ports[p].number, qrtr_servers[i].service, qrtr_servers[i].node,
+				    qrtr_servers[i].port);
+				server(context, true, qrtr_servers[i].service,
+				    qrtr_servers[i].instance & 0xff, qrtr_servers[i].instance >> 8,
+				    qrtr_servers[i].node, qrtr_servers[i].port);
+			}
+		}
+	}
 	for (unsigned p = 0; p < sizeof(qrtr_ports) / sizeof(qrtr_ports[0]); p++) {
 		for (unsigned l = 0; l < 4; l++) {
 			hakios_qrtr_server_t server;
@@ -3018,6 +3142,39 @@ qrtr_fresh(void)
 	}
 }
 
+/* What was held for this port, handed over now that it exists. */
+static void
+qrtr_held_flush(struct hakios_qrtr_port *port)
+{
+	if (port == NULL || port->number == 0 || port->receive == NULL) {
+		return;
+	}
+	for (unsigned h = 0; h < QRTR_HELD; h++) {
+		uint8_t bytes[2048];
+		uint32_t from_node = 0, from_port = 0, length = 0;
+		bool have = false;
+
+		lck_mtx_lock(&qrtr_lock);
+		if (qrtr_held[h].used && qrtr_held[h].to_port == port->number) {
+			from_node = qrtr_held[h].from_node;
+			from_port = qrtr_held[h].from_port;
+			length = qrtr_held[h].length;
+			memcpy(bytes, qrtr_held[h].bytes, length);
+			qrtr_held[h].used = false;
+			if (qrtr_held_total != 0u) {
+				qrtr_held_total--;
+			}
+			have = true;
+		}
+		lck_mtx_unlock(&qrtr_lock);
+		if (have) {
+			printf("wifi: qrtr: the %u bytes held for port %u are handed over\n", length,
+			    port->number);
+			port->receive(port->context, from_node, from_port, bytes, length);
+		}
+	}
+}
+
 static struct hakios_qrtr_port *
 qrtr_open(hakios_qrtr_receive_t receive, hakios_qrtr_server_t server, void *context)
 {
@@ -3035,6 +3192,7 @@ qrtr_open(hakios_qrtr_receive_t receive, hakios_qrtr_server_t server, void *cont
 		}
 	}
 	lck_mtx_unlock(&qrtr_lock);
+	qrtr_held_flush(port);
 	return port;
 }
 
@@ -3089,7 +3247,36 @@ qrtr_close(struct hakios_qrtr_port *port)
 	}
 }
 
-static const struct hakios_qrtr_ops qrtr_ops = { .open = qrtr_open, .send = qrtr_send, .lookup = qrtr_lookup, .close = qrtr_close };
+static const struct hakios_qrtr_ops qrtr_ops = { .open = qrtr_open, .send = qrtr_send, .lookup = qrtr_lookup,
+						 .generation = qrtr_radio_generation_of, .close = qrtr_close };
+
+/*
+ * The driver's QRTR (wifi_umi=1): the port tables above are the transport, so all that is
+ * needed is to hand them to the QMI helpers and to feed them what the firmware sent.
+ */
+void
+hakios_wifi_qrtr_install(void)
+{
+	hakios_qmi_set_transport(&qrtr_ops);
+}
+
+void
+hakios_wifi_qrtr_input(const uint8_t *data, uint32_t length)
+{
+	qrtr_input(data, length);
+}
+
+/*
+ * The services that were announced before the driver looked for them.  In GLINK's session the
+ * link's thread does this after every message it takes; here nothing does unless it is asked to,
+ * and the firmware announces its WLFW service once, before ath11k has opened its port -- so the
+ * driver's lookup would wait for an arrival that has already happened.
+ */
+void
+hakios_wifi_qrtr_fresh(void)
+{
+	qrtr_fresh();
+}
 
 /* ---- the link's thread -------------------------------------------------------------------------------- */
 
@@ -4032,7 +4219,46 @@ hakios_wifi_dsp_is_up(void)
  * data file and regulatory database, which are what the two names below stand for. The others
  * it asks for first and can do without (a container of several boards' data, a table of the
  * firmware's features) are not there.
+ *
+ * With the radio the endpoint on PCIe (wifi_umi=1) its board data file is not in fw-wifi/ at all:
+ * on this phone Android's driver has it read out of the phone's storage into the radio, so the
+ * image carries none. The kernel carries this phone's own (see tools/gen_wlanfw_blobs.py), and
+ * which one is to be given to the driver is named by the boot argument pcie_bdf, the same one
+ * pcie.c is told. The regulatory database is in the image under the name Linux gives it. Every
+ * other name must still fail, so that ath11k falls back to what it can do without.
  */
+extern const uint32_t hakios_wlanfw_board_count;
+extern const struct hakios_wlanfw_board {
+	const char *name;
+	uint64_t size;
+	const uint8_t *bytes;
+} hakios_wlanfw_boards[];
+extern const uint8_t hakios_wlanfw_m3_bytes[];
+extern const uint64_t hakios_wlanfw_m3_size;
+
+static const struct hakios_wlanfw_board *
+wifi_umi_board(void)
+{
+	char name[64] = "";
+	const struct hakios_wlanfw_board *board = NULL;
+
+	if (!PE_parse_boot_arg_str("pcie_bdf", name, sizeof(name)) || name[0] == 0) {
+		strlcpy(name, "bd_j11.elf", sizeof(name));
+	}
+	for (uint32_t i = 0; i < hakios_wlanfw_board_count; i++) {
+		if (strcmp(hakios_wlanfw_boards[i].name, name) == 0) {
+			board = &hakios_wlanfw_boards[i];
+			break;
+		}
+	}
+	if (board == NULL) {
+		printf("wifi: %u: the driver asks for the board file %s, WHICH THE KERNEL DOES NOT CARRY: it "
+		    "has %u of this phone's (pcie_bdf=bd_j11.elf and others)\n", step, name,
+		    hakios_wlanfw_board_count);
+	}
+	return board;
+}
+
 const uint8_t *
 hakios_wifi_driver_file(const char *name, uint64_t *size)
 {
@@ -4040,6 +4266,32 @@ hakios_wifi_driver_file(const char *name, uint64_t *size)
 	const char *last = strrchr(name, '/');
 
 	last = last == NULL ? name : last + 1;
+	if (hakios_wifi_option("wifi_umi") != 0) {
+		const struct hakios_wlanfw_board *board;
+
+		if (strcmp(last, "board.bin") == 0) {
+			board = wifi_umi_board();
+			if (board == NULL) {
+				return NULL;
+			}
+			*size = board->size;
+			return board->bytes;
+		}
+		if (strcmp(last, "regdb.bin") == 0) {
+			return image_file("regdb.bin", size);
+		}
+		if (strcmp(last, "m3.bin") == 0) {
+			/*
+			 * The image the firmware is started with.  ath11k copies it into the memory
+			 * lx_os_radio_firmware_memory(type 3) names and tells the firmware where
+			 * that is; these are the bytes pcie.c hands the chip at stage 20 -- the
+			 * generator put them in the kernel, Linux merely asks by file name.
+			 */
+			*size = hakios_wlanfw_m3_size;
+			return hakios_wlanfw_m3_bytes;
+		}
+		return NULL;
+	}
 	for (unsigned i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
 		if (strcmp(last, files[i][0]) == 0) {
 			return image_file(files[i][1], size);
@@ -4307,17 +4559,172 @@ whole_thread(__unused void *parameter, __unused wait_result_t result)
 }
 
 /*
+ * wifi_umi=1: the driver of this phone's radio, whose radio is the endpoint on PCIe and not the
+ * sound processor's. None of the steps above is gone through -- the endpoint's firmware is brought
+ * up by the driver's own power_up over QMI (hakios.pcie.c), and its firmware's files are the ones
+ * ath11k asks for by name -- so all that is left is to take the memory the radio is shown and
+ * start the driver. It runs on a thread of its own for the same reason wifi=1 does: the driver's
+ * exchange with the firmware takes tens of seconds, and the system is to start meanwhile.
+ */
+static void
+umi_thread(__unused void *parameter, __unused wait_result_t result)
+{
+	uint32_t delay = 5;			/* seconds, as apollo's sweetwifidelay */
+	int error;
+
+	/*
+	 * apollo's Wi-Fi thread sleeps five seconds before it starts (sweet_wifi.c,
+	 * `wifi_delay = 5`, tsleep(wifi_delay * hz)).  Ours runs beside the system's start
+	 * instead, and the radio's first mode 7 lands in a window narrow enough that starting
+	 * earlier than the rest of the system is the one difference left to remove.
+	 */
+	PE_parse_boot_argn("wifi_delay", &delay, sizeof(delay));
+	if (delay != 0) {
+		tell("wifi: the radio is left %u s before its driver starts, as apollo's is\n",
+		    delay);
+		delay_for_interval((uint64_t)delay * 1000u, NSEC_PER_MSEC);
+	}
+
+	/* the memory the radio is shown is one piece: taken now, while that is easy to find */
+	if (hakios_lx_prepare() != 0) {
+		tell("wifi: NO MEMORY FOR THE RADIO in one piece: the driver is not started\n");
+		whole_runs = false;
+		thread_terminate(current_thread());
+	}
+	/*
+	 * apollo's order, not ours.  Its step machine brings the radio up itself (steps 4-7:
+	 * enumerate, AMSS, MHI, QRTR), watches the rings for five seconds, and only then starts
+	 * the driver (step 11) -- whose first power_up finds the radio running and does nothing.
+	 * Ours did the opposite: the driver's first power_up brought the radio up, so the first
+	 * mode seven request left microseconds after the firmware's own boot and the firmware
+	 * asserted on it.  Up first, a gap, then the driver.
+	 */
+	{
+		uint32_t preboot = 1;
+
+		PE_parse_boot_argn("wifi_preboot", &preboot, sizeof(preboot));
+		if (hakios_wifi_option("wifi_umi") == 0) {
+			/*
+			 * The radio is the PCIe endpoint only when this boot says so.  Enumerating it on
+			 * any other boot hangs the machine at once (a battery and a thermal run both died
+			 * here, 2026-11-06), so the pre-boot does not happen unless wifi_umi is given.
+			 */
+			preboot = 0u;
+		}
+		if (preboot == 0u) {
+			tell("wifi: the radio is NOT brought up first (wifi_preboot=0): the driver's own "
+			    "power-up does it, as it used to\n");
+		} else {
+			uint32_t settle = 5;
+
+			error = hakios_pcie_radio_boot();
+			tell("wifi: the radio is up before the driver is started: %d\n", error);
+			PE_parse_boot_argn("wifi_settle", &settle, sizeof(settle));
+			if (error == 0 && settle != 0u) {
+				tell("wifi: the rings are watched for %u s before the driver takes the radio, "
+				    "as apollo's step 7 does\n", settle);
+				delay_for_interval((uint64_t)settle * 1000u, NSEC_PER_MSEC);
+			}
+		}
+	}
+	{
+		extern void hakios_pcie_radio_reset(void);
+		extern int hakios_lx_calibrated(void);
+		uint32_t tries = 2;
+
+		PE_parse_boot_argn("wifi_tries", &tries, sizeof(tries));
+		if (tries == 0u) {
+			tries = 1u;
+		}
+		for (uint32_t attempt = 1; ; attempt++) {
+			error = hakios_lx_start();
+			tell("wifi: the driver's start returns %d (attempt %u of %u)\n", error, attempt,
+			    tries);
+			/*
+			 * EIO from a start that ran the cold-boot calibration to the end is a success
+			 * wearing the wrong errno: the calibration branch never sets the driver's
+			 * registered flag, so lx_start() reports EIO for a radio that calibrated
+			 * fine.  Retrying on it throws away the draw that came out right.
+			 */
+			if (error == EIO && hakios_lx_calibrated() != 0) {
+				uint32_t ok = 1;
+
+				PE_parse_boot_argn("wifi_retry_ok", &ok, sizeof(ok));
+				if (ok != 0u) {
+					tell("wifi: the calibration is in, so this is the draw that came out "
+					    "right (the driver calls it %d)\n", error);
+					error = 0;
+				}
+			}
+			if (error == 0 || attempt >= tries) {
+				break;
+			}
+			/*
+			 * The calibration lottery: the firmware sometimes never answers the mode 7
+			 * request, and the driver gives up.  Instead, the radio goes back into
+			 * reset -- its memory and its calibration are kept, and the services it
+			 * announced are forgotten -- and a fresh driver is built on top of it.
+			 */
+			tell("wifi: the radio is put back and the driver built again\n");
+			hakios_pcie_radio_reset();
+			delay_for_interval(1000, NSEC_PER_MSEC);
+		}
+	}
+	if (error != 0) {
+		tell("wifi: THE DRIVER DID NOT COME UP. The last of what was said on the way:\n");
+		say_kept();
+	}
+	whole_runs = false;
+	thread_terminate(current_thread());
+}
+
+/*
  * Called while the system starts, before there is a root file system. With wifi_step=N the start
  * waits until the steps are over (see hakios_adreno_init()); with wifi=1 it does not.
  */
 void
 hakios_wifi_init(void)
 {
+	/*
+	 * The init function that calls this (hakios.input.c:238) runs more than once in a
+	 * boot -- ten times in logs/063344-run.log.  Unguarded, each pass started another
+	 * umi_thread, and ten threads walked the same SMMU tables, the same MHI rings and the
+	 * same firmware at once; the firmware accepted one mode 7 in three runs.  One radio,
+	 * one thread.
+	 */
+	static bool umi_started;
 	uint32_t on = 0, back = 0, done = 0;
 	uint64_t size = 0;
 	thread_t thread;
 
 	PE_parse_boot_argn("wifi_step", &last_step, sizeof(last_step));
+	if (hakios_wifi_option("wifi_umi") != 0) {
+		if (umi_started) {
+			return;
+		}
+		umi_started = true;
+		/*
+		 * The radio is the endpoint on PCIe: wifi=1 and wifi_step=N are the sound processor's
+		 * way, and are not gone through at all (see umi_thread()).
+		 */
+		if (pe_arm_get_soc_base_phys() != HAKIOS_SOC_BASE) {
+			printf("wifi: wifi_umi=1 is for the phone's radio, and this is not the phone\n");
+			return;
+		}
+		quiet = !(PE_parse_boot_argn("wifi_loud", &back, sizeof(back)) && back);
+		new_from = STEPS + 1;
+		whole_runs = true;
+		hakios_lx_net_early();
+		if (kernel_thread_start(umi_thread, NULL, &thread) != KERN_SUCCESS) {
+			whole_runs = false;
+			tell("wifi: no thread: the driver is not started\n");
+			return;
+		}
+		thread_deallocate(thread);
+		tell("wifi: the radio is the endpoint on PCIe: the driver is being started beside the system's start "
+		    "(wifi_umi=1)\n");
+		return;
+	}
 	if (last_step == 0 && (!PE_parse_boot_argn("wifi", &on, sizeof(on)) || on == 0)) {
 		return;
 	}

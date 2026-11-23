@@ -694,10 +694,13 @@ qmi_receive(void *context, uint32_t node, uint32_t port, const void *data, size_
 	type = header[0];
 	id = (uint16_t)(header[1] | header[2] << 8);
 	message = (uint16_t)(header[3] | header[4] << 8);
+	printf("qmi: in %zu bytes from %u:%u: type %u, transaction %u, message %u\n", length, node, port, type, id, message);
 	if (type == QMI_RESPONSE) {
 		os_lock(&s->lock);
 		found = find_transaction(s, NULL, id);
 		txn = found != NULL ? *found : NULL;
+		printf("qmi: reply transaction %u: %s%s\n", id, txn == NULL ? "no transaction with that number" : "found",
+		    txn != NULL && txn->done ? ", already done" : "");
 		if (txn != NULL && !txn->done && txn->ei != NULL && txn->dest != NULL) {
 			txn->result = hakios_qmi_decode(data, length, txn->ei, txn->dest);
 			txn->done = true;
@@ -742,6 +745,8 @@ qmi_server(void *context, bool arrived, uint32_t service, uint32_t version, uint
 		svc->instance = instance;
 		svc->node = node;
 		svc->port = port;
+		svc->generation = s->transport != NULL && s->transport->generation != NULL ?
+		    s->transport->generation() : 0u;
 		if (s->ops.new_server != NULL && s->ops.new_server(s->handle, svc) < 0) {
 			os_free(svc, sizeof(*svc));
 			return;
@@ -750,6 +755,24 @@ qmi_server(void *context, bool arrived, uint32_t service, uint32_t version, uint
 		svc->next = s->services;
 		s->services = svc;
 		os_unlock(&s->lock);
+	} else if (arrived && svc != NULL) {
+		/*
+		 * The same node and port again: either the name service replaying itself to a
+		 * port it has already told (drop it: that session is alive), or the fresh
+		 * firmware of a radio reset announcing itself (rejoin: post SERVER_ARRIVE and
+		 * let the whole handshake run again).  The transport's reset counter tells
+		 * these apart: a service back across a different number is the new firmware.
+		 * Upstream never has to ask -- a node going away synthesizes del_server, and
+		 * every re-announcement looks fresh.  del_server is not played here on
+		 * purpose: it drags ath11k into the crash-flush recovery path, and only the
+		 * rejoin is wanted (docs section 49.6).
+		 */
+		unsigned (*generation)(void) = s->transport != NULL ? s->transport->generation : NULL;
+
+		if (s->ops.new_server != NULL && generation != NULL && generation() != svc->generation) {
+			svc->generation = generation();
+			s->ops.new_server(s->handle, svc);
+		}
 	} else if (!arrived && svc != NULL) {
 		if (s->ops.del_server != NULL) {
 			s->ops.del_server(s->handle, svc);
@@ -847,6 +870,20 @@ hakios_qmi_connect(struct socket *sock, uint32_t node, uint32_t port)
 }
 
 int
+hakios_qmi_poll(struct qmi_handle *qmi, uint32_t timeout_ms)
+{
+	struct qmi_state *s = state_of(qmi);
+
+	if (s == NULL) {
+		return -EINVAL;
+	}
+	if (s->transport->poll == NULL) {
+		return 0;
+	}
+	return s->transport->poll(s->port, timeout_ms);
+}
+
+int
 qmi_txn_init(struct qmi_handle *qmi, struct qmi_txn *txn, const struct qmi_elem_info *ei, void *structure)
 {
 	struct qmi_state *s = state_of(qmi);
@@ -915,6 +952,7 @@ qmi_send_request(struct qmi_handle *qmi, struct sockaddr_qrtr *sq, struct qmi_tx
 		os_free(buffer, size);
 		return length;
 	}
+	printf("qmi: out message %d, transaction %u, %d bytes to %u:%u\n", msg_id, txn->id, length, node, port);
 	error = s->transport->send(s->port, node, port, buffer, (size_t)length);
 	os_free(buffer, size);
 	return error > 0 ? -error : error;

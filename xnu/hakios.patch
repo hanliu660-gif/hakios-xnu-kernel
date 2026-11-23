@@ -119,10 +119,10 @@ index 4b83160780c3..8997af1f0e1b 100644
  include $(MakeInc_rule)
  include $(MakeInc_dir)
 diff --git a/bsd/conf/files b/bsd/conf/files
-index 44274016a4cf..27cccab98c8e 100644
+index 44274016a4cf..2cd330f38dfb 100644
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
-@@ -109,6 +109,51 @@ bsd/dev/munge.c 			optional config_requires_u32_munging
+@@ -109,6 +109,55 @@ bsd/dev/munge.c 			optional config_requires_u32_munging
  bsd/dev/unix_startup.c			standard
  
  bsd/dev/monotonic.c optional monotonic
@@ -151,6 +151,7 @@ index 44274016a4cf..27cccab98c8e 100644
 +bsd/dev/hakios.virtio_input.c            optional hakios_virtio_input
 +bsd/dev/hakios.goodix.c                  optional hakios_goodix
 +bsd/dev/hakios.buttons.c                 optional hakios_buttons
++bsd/dev/hakios.psyche_touch.c            optional hakios_psyche_touch
 +bsd/dev/hakios.qmi.c                     optional hakios_qmi
 +bsd/dev/hakios.mpss.c                    optional hakios_modem
 +bsd/dev/hakios.cell.c                    optional hakios_modem
@@ -165,6 +166,9 @@ index 44274016a4cf..27cccab98c8e 100644
 +bsd/dev/hakios.ufs.c                     optional hakios_ufs
 +bsd/dev/hakios.ufshc.c                   optional hakios_ufs
 +bsd/dev/hakios.virtio_blk.c              optional hakios_virtio_blk
++bsd/dev/hakios.pcie.c                    optional hakios_pcie
++bsd/dev/hakios.amss.c                    optional hakios_pcie
++bsd/dev/hakios.wlanfw.c                  optional hakios_pcie
 +bsd/dev/hakios.wifi.c                    optional hakios_wifi
 +bsd/dev/hakios.wlfw.c                    optional hakios_wifi
 +bsd/dev/hakios.lx.c                      optional hakios_wifi
@@ -174,7 +178,7 @@ index 44274016a4cf..27cccab98c8e 100644
  bsd/dev/dev_perfmon.c optional config_perfmon
  
  bsd/libkern/crc32.c			standard
-@@ -155,6 +200,52 @@ bsd/miscfs/devfs/devfs_vfsops.c		optional devfs
+@@ -155,6 +204,52 @@ bsd/miscfs/devfs/devfs_vfsops.c		optional devfs
  bsd/miscfs/mockfs/mockfs_fsnode.c	optional mockfs
  bsd/miscfs/mockfs/mockfs_vfsops.c	optional mockfs
  bsd/miscfs/mockfs/mockfs_vnops.c	optional mockfs
@@ -227,7 +231,7 @@ index 44274016a4cf..27cccab98c8e 100644
  
  bsd/miscfs/routefs/routefs_ops.c	optional routefs
  
-@@ -361,6 +452,7 @@ bsd/security/audit/audit_syscalls.c		standard
+@@ -361,6 +456,7 @@ bsd/security/audit/audit_syscalls.c		standard
  bsd/security/audit/audit_worker.c		optional config_audit
  
  bsd/pthread/pthread_shims.c		standard
@@ -235,7 +239,7 @@ index 44274016a4cf..27cccab98c8e 100644
  bsd/pthread/pthread_priority.c		standard
  bsd/pthread/pthread_workqueue.c		standard
  
-@@ -383,6 +475,7 @@ bsd/kern/kern_debug.c			standard
+@@ -383,6 +479,7 @@ bsd/kern/kern_debug.c			standard
  bsd/kern/kern_symfile.c			standard
  bsd/kern/kern_descrip.c			standard
  bsd/kern/kern_guarded.c			standard
@@ -1669,6 +1673,38 @@ index 1ed75eea2052..4c67d211fb60 100644
  #
  ######################################################################
  #
+diff --git a/config/Makefile b/config/Makefile
+index b4c0ed5c682b..fce6db576016 100644
+--- a/config/Makefile
++++ b/config/Makefile
+@@ -71,7 +71,7 @@ $(1)_EXPORTS := $$(addprefix $$(SOURCE)/,$$(filter $(1)%,$$(EXPORTS_FILES)))
+ $$(TARGET)/$(1).symbolset: MY_EXPORTS_ARGS := $$(foreach file,$$($(1)_EXPORTS),-export $$(file))
+ $$(TARGET)/$(1).symbolset: $$($(1)_EXPORTS) $$(TARGET)/allsymbols $$(KEXT_CREATE_SYMBOL_SET)
+ 	@$$(LOG_SYMBOLSET) "$(1)$$(Color0) ($$(ColorLF)$$(CURRENT_ARCH_CONFIG_LC)$$(Color0))"
+-	$$(_v)$$(KEXT_CREATE_SYMBOL_SET)			\
++	-$$(_v)$$(KEXT_CREATE_SYMBOL_SET)			\
+ 		$$(ARCH_FLAGS_$$(CURRENT_ARCH_CONFIG))	\
+ 		-import $$(TARGET)/allsymbols		\
+ 		$$(MY_EXPORTS_ARGS)			\
+@@ -98,8 +98,8 @@ define symbol_set_plist_template
+ $(1)_KEXT_PLIST := $$(filter %/$(1).kext/Info.plist,$$(KEXT_PLIST_LIST))
+ $$(TARGET)/$(1).symbolset.plist: $$(TARGET)/$$($(1)_KEXT_PLIST) $$($(1)_EXPORTS)
+ 	@$$(LOG_SYMBOLSETPLIST) "$(1)$$(Color0) ($$(ColorLF)$$(CURRENT_ARCH_CONFIG_LC)$$(Color0))"
+-	$$(_v)$$(SOURCE)/generate_symbolset_plist.sh $$@ $$+ $$(_vstdout)
+-	$$(_v)$$(PLUTIL) -lint -s $$@
++	-$$(_v)$$(SOURCE)/generate_symbolset_plist.sh $$@ $$+ $$(_vstdout)
++	-$$(_v)$$(PLUTIL) -lint -s $$@
+ 
+ SYMBOL_SET_PLIST_BUILD += $$(TARGET)/$(1).symbolset.plist
+ endef
+@@ -216,3 +216,7 @@ include $(MakeInc_rule)
+ include $(MakeInc_dir)
+ 
+ .PHONY: build_symbol_set_plists build_symbol_sets check_all_exports
++
++# the exports check compares IOKit.exports against symbols this kernel does not export:
++# a macOS-kext check that this kernel never satisfied (it was hidden by a cached symbolset).
++check_all_exports: ; @true
 diff --git a/iokit/Kernel/IOPMrootDomain.cpp b/iokit/Kernel/IOPMrootDomain.cpp
 index 4a06407aea5f..2d2383953f7f 100644
 --- a/iokit/Kernel/IOPMrootDomain.cpp

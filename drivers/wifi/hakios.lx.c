@@ -41,6 +41,25 @@ extern void thread_set_thread_name(thread_t thread, const char *name);
 static LCK_GRP_DECLARE(lx_lock_group, "hakios-lx");
 static LCK_MTX_DECLARE(lx_lock, &lx_lock_group);
 
+/*
+ * The radio as the endpoint on PCIe (drivers/wifi/hakios.pcie.c): its firmware's fixed memory, its
+ * start and its reset, the window its registers were mapped into when it was enumerated, where it
+ * is told to write to raise an interrupt, and the QRTR transport that carries the driver's QMI to
+ * it over MHI/IPCR. That is the radio of this phone (wifi_umi=1); on the one whose radio is the
+ * sound processor's these are not called.
+ */
+extern bool hakios_pcie_firmware_memory(unsigned type, uint64_t size, vm_offset_t *memory, uint64_t *address);
+extern int hakios_pcie_radio_boot(void);
+extern void hakios_pcie_radio_reset(void);
+extern vm_offset_t hakios_pcie_bar_window(void);
+extern bool hakios_pcie_msi_point(uint64_t *address, uint32_t *data);
+extern int hakios_pcie_ee_read(void);
+/* The last start's calibration, from lx_bus.c: whether the cold-boot road got there. */
+extern int hakios_pcie_cal_done(void);
+extern void hakios_pcie_qrtr_install(void);
+extern void hakios_pcie_poll_start(void);
+extern bool hakios_pcie_radio_map(uint64_t physical, uint64_t size, uint64_t *address);
+
 /* ---- memory ------------------------------------------------------------------------------------------ */
 
 void *
@@ -79,18 +98,45 @@ lx_os_radio_memory(unsigned long size, unsigned long long *address)
 	}
 	__asm__ volatile ("dsb sy");
 	uncached = ml_io_map_unmappable(physical, size, VM_WIMG_WCOMB);
-	if (uncached == 0 || !hakios_wifi_radio_map(physical, size, address)) {
+	if (uncached == 0) {
+		return NULL;
+	}
+	/*
+	 * The address the radio is to know this memory by lives in its own space, and whose tables
+	 * translate that space depends on which radio this is: the endpoint's, in pcie.c, on this
+	 * phone (wifi_umi=1), whose tables are also the ones it reads its firmware through; the
+	 * sound processor's, made in hakios.wifi.c, on the WCN6750.
+	 */
+	if (hakios_wifi_option("wifi_umi") != 0) {
+		if (!hakios_pcie_radio_map((uint64_t)physical, (uint64_t)size, (uint64_t *)address)) {
+			return NULL;
+		}
+	} else if (!hakios_wifi_radio_map(physical, size, address)) {
 		return NULL;
 	}
 	return (void *)uncached;
 }
 
+/*
+ * The radio's registers. On this phone the radio is behind PCIe, and the driver asks for the
+ * megabyte its first BAR lives in (wifi/lx's lx_bus.c: 0x60300000). That window was mapped when
+ * the endpoint was enumerated, and its pages are the ones the chip's registers answer at, so that
+ * is the mapping to give back: one made here would be a second window onto the same BAR.
+ */
+#define LX_RADIO_BAR            0x60300000ull
+#define LX_RADIO_BAR_SIZE       0x100000ul
+
 void *
 lx_os_map_registers(unsigned long long physical, unsigned long size)
 {
 	unsigned long long page = trunc_page(physical);
-	vm_offset_t mapped = ml_io_map_unmappable(page, round_page(physical + size) - page, VM_WIMG_IO);
+	vm_offset_t mapped;
 
+	if (hakios_wifi_option("wifi_umi") != 0 && physical == LX_RADIO_BAR && size <= LX_RADIO_BAR_SIZE) {
+		mapped = hakios_pcie_bar_window();
+		return mapped == 0 ? NULL : (void *)mapped;
+	}
+	mapped = ml_io_map_unmappable(page, round_page(physical + size) - page, VM_WIMG_IO);
 	return mapped == 0 ? NULL : (void *)(mapped + (physical - page));
 }
 
@@ -212,6 +258,12 @@ lx_os_option(const char *name)
 }
 
 int
+lx_os_radio_ee(void)
+{
+	return hakios_pcie_ee_read();
+}
+
+int
 lx_os_firmware(const char *name, const void **data, unsigned long *size)
 {
 	uint64_t length = 0;
@@ -225,10 +277,45 @@ lx_os_firmware(const char *name, const void **data, unsigned long *size)
 	return 0;
 }
 
+/*
+ * The processor the firmware runs on. On this phone it is the endpoint's own: pcie.c starts it,
+ * and starts it again when the driver asks after its calibration's power_down; on the WCN6750 it
+ * is the sound processor's, already up when the driver asks.
+ */
 int
 lx_os_rproc_boot(void)
 {
+	if (hakios_wifi_option("wifi_umi") != 0) {
+		return hakios_pcie_radio_boot() == 0 ? 0 : -1;
+	}
 	return hakios_wifi_dsp_is_up() ? 0 : ENXIO;
+}
+
+/*
+ * Memory the firmware asks the driver for, by type (1 its main region, 4 its calibration, 3 the
+ * M3 image it is started with): the endpoint's own fixed regions, which pcie.c keeps across the
+ * driver's restart of the radio -- the calibration has to survive it. 0 when *memory and *address
+ * are filled in, or an errno: the driver's side treats anything but 0 as a refusal and gives up.
+ */
+int
+lx_os_radio_firmware_memory(unsigned type, unsigned long size, void **memory, unsigned long long *address)
+{
+	vm_offset_t where = 0;
+	uint64_t at = 0;
+
+	if (!hakios_pcie_firmware_memory(type, (uint64_t)size, &where, &at)) {
+		return ENOMEM;
+	}
+	*memory = (void *)where;
+	*address = (unsigned long long)at;
+	return 0;
+}
+
+/* The driver's power_down: the endpoint goes back into reset; its memory, the calibration's too, is kept. */
+void
+lx_os_rproc_shutdown(void)
+{
+	hakios_pcie_radio_reset();
 }
 
 int
@@ -427,11 +514,37 @@ lx_irq_runs(__unused void *parameter, __unused wait_result_t result)
 	}
 }
 
+/*
+ * Where the radio writes, and what, to raise its interrupt vector 0, and which GIC number that
+ * vector is (lx_irq_first, which lx_os_irq_attach() adds the vector to). Two ways to the answer:
+ * with wifi_umi the address is the endpoint's own MSI page and the number is the one pcie.c put in
+ * it when the endpoint was enumerated (RADIO_FIRST_SPI + GIC_SPI_BASE); without it, the radio's
+ * own MSI page and the run of SPIs the GIC was given for it.
+ */
 int
 lx_os_irq_msi(unsigned long long *address, unsigned *data)
 {
 	uint32_t first = 0;
+	uint64_t at = 0;
+	uint32_t what = 0;
 
+	if (hakios_wifi_option("wifi_umi") != 0) {
+		if (!hakios_pcie_msi_point(&at, &what)) {
+			return 0;
+		}
+		*address = (unsigned long long)at;
+		*data = (unsigned)what;
+		/*
+		 * The vector 0 number as well, which this branch used to leave out: it left lx_irq_first
+		 * at 0, and lx_os_irq_attach() refuses everything while that is 0 (it reads it as "no
+		 * interrupts"), so wifi_irq=1 with wifi_umi=1 could not attach a handler at all and the
+		 * rings were polled whatever was asked for. pcie.c sets the endpoint's MSI page up with
+		 * this same number (RADIO_FIRST_SPI + GIC_SPI_BASE), so what the radio is told to write
+		 * and what is attached here agree.
+		 */
+		lx_irq_first = what;
+		return 1;
+	}
 	if (!hakios_wifi_radio_msi(address, data, &first)) {
 		return 0;
 	}
@@ -564,8 +677,26 @@ lx_transmit(__unused const unsigned char *frame, __unused unsigned long length)
 }
 
 int
+hakios_lx_calibrated(void)
+{
+	return hakios_pcie_cal_done();
+}
+
+int
 hakios_lx_start(void)
 {
+	if (hakios_wifi_option("wifi_umi") != 0) {
+		/*
+		 * The driver's QMI is to reach the firmware over the endpoint's MHI/IPCR transport,
+		 * not over the sound processor's GLINK, and the endpoint's rings and events are to be
+		 * looked at while the driver waits, since no interrupt is tied to the GIC: both are
+		 * pcie.c's (see hakios.pcie.c). Nothing else is done here -- the memory the radio is
+		 * shown, and the thread that counts the ticks, are prepared by lx_start() itself:
+		 * lx_prepare() is its first act, and it is idempotent.
+		 */
+		hakios_pcie_qrtr_install();
+		hakios_pcie_poll_start();
+	}
 	return lx_start();
 }
 

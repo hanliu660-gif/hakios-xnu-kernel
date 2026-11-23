@@ -61,6 +61,8 @@ on the Adreno 642L, at 100 to 104 frames a second in page swipes on a 120 Hz pan
 | [Drivers](reference/drivers.md) | every driver, made from the source |
 | [Boot arguments](boot-args.md) | every argument any part of the system reads, made from the source |
 | [Commands](reference/tools.md) | `make` targets and the scripts below them |
+| [What the GPU did once](gpu-regression.md) | a driver that lost an eighth of itself, and the byte counts that found it |
+| [Where each fix lived](merge-audit.md) | three lines of the work compared by path and by length, and what merging them kept |
 
 ## The project
 
@@ -82,7 +84,7 @@ measurements are the source. The rows about the lock screen and the apps describ
 | Lock screen, home screen, Control Center, the stock apps | yes | yes (slow: the CPU is emulated) |
 | Touch, multitouch, buttons | yes | yes (the mouse and the keyboard) |
 | All 8 CPU cores, the big one at 2.4 GHz | yes | no |
-| GPU (OpenGL ES through Mesa) | yes | no |
+| GPU (OpenGL ES through Mesa) | yes ([what broke once](gpu-regression.md)) | no |
 | Metal | partly: the window server draws through it, on two paths ([Metal](reference/metal.md)), off by default; swipes 100 to 104 frames a second, not 120; other programs not shown | partly: a device Metal loads; no GPU, nothing drawn |
 | Wi-Fi | yes | yes (virtio-net) |
 | Sound, microphone | yes | sound only (virtio) |
