@@ -1152,6 +1152,16 @@ power_on(void)
 	 * vote is what hangs this phone.
 	 */
 	step_probe(1);
+	/*
+	 * Not mapped, the sequencer's registers are not there to be written: TCS(reg) would be
+	 * 0xd00 + reg, a physical address in the vectors, and the store goes wherever that lands.
+	 * Every other entry point tests this; the normal probe did not, and a run whose mapping
+	 * failed went straight on to write it.
+	 */
+	if (rsc == 0) {
+		printf("psyche_touch: no RPMh window mapped, supplies left as they are\n");
+		return true;
+	}
 	(void)rpmh_read(0x41f00 + VRM_ENABLE, &v);
 	step_probe(2);
 	if (!v) {
@@ -4610,6 +4620,37 @@ probe(void)
 	 * 8 MHz request divides down to that same failed point.
 	 */
 	target_spi_hz = 1000000;
+
+	/*
+	 * The windows the normal probe uses. It used to use none of them: gcc, se and rsc are
+	 * static and start at zero, and only the experimental entry points below ever mapped
+	 * them, so on this path clocks_on() wrote through a null pointer and power_on() fired
+	 * its sequencer command at 0xd00 -- the vectors, not the RSC. The result was a machine
+	 * that stopped with nothing said, at the first supply read.
+	 *
+	 * The pins come first because clocks_on() reads and writes GCC and the pin controller
+	 * before anything else here touches them.
+	 */
+	if (tlmm_west == 0) {
+		tlmm_west = ml_io_map(TILE_WEST_PHYS, TILE_SIZE);
+	}
+	if (tlmm_south == 0) {
+		tlmm_south = ml_io_map(TILE_SOUTH_PHYS, TILE_SIZE);
+	}
+	if (tlmm_north == 0) {
+		tlmm_north = ml_io_map(TILE_NORTH_PHYS, TILE_SIZE);
+	}
+	if (gcc == 0) {
+		gcc = ml_io_map(GCC_PHYS, GCC_SIZE);
+	}
+	if (rsc == 0) {
+		rsc = ml_io_map(RSC_PHYS, RSC_SIZE);
+	}
+	if (gcc == 0 || rsc == 0) {
+		printf("psyche_touch: no window for the clocks or the supplies (gcc=%#lx rsc=%#lx)\n",
+		    (unsigned long)gcc, (unsigned long)rsc);
+		return false;
+	}
 
 	/* 先试 GENI，失败退到位翻转 */
 	if (!force_bitbang && clocks_on()) {
