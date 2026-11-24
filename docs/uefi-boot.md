@@ -3,7 +3,10 @@
 HakiOS can start the way a UEFI operating system starts: the firmware runs `\EFI\BOOT\BOOTAA64.EFI` from a volume,
 that loader reads the kernel from the same volume, and nothing else is needed: no fastboot, no host computer.
 
-Status in one line: **works in QEMU (checked); not tried on a phone.** The sections below say exactly what was run.
+Status in one line: **works in QEMU (checked), and on the phone (checked: the loader starts from RAM and its banner is
+read back). The file-of-the-volume way has still been tried in QEMU only.**
+
+The sections below say exactly what was run.
 
 ## Three ways a payload reaches the loader
 
@@ -59,7 +62,9 @@ A file that is not a payload gives `is not a payload (no XNUP at its start)`, an
   leaves in memory instead of a menu** (`uefi/README.md`). It does not look for a loader on a
   volume. So the file-of-the-volume way has **not** been tried on the phone, and it needs a change to the Boot
   Manager (or a UEFI that boots from a volume) before it can be.
-- Whether Silicium leaves `0xF0000000` free at the point where the loader runs is not known.
+- `0xF0000000`: on the phone the shim copies the payload there and the loader finds it, so nothing the firmware does
+  before the loader runs takes it away. The psyche UEFI platform keeps it as a block of its own (a `Reserv` entry in its
+  memory map, 64 MiB), which is why. A UEFI built without that entry is the case this cannot vouch for.
 - The way to a phone that does not need a host today is the boot image itself, in a boot slot: `docs/install.md`.
 - Another UEFI on the phone, all of it open source: HakiOS's U-Boot, started from RAM by ABL, which takes the loader and the
   payload from memory and starts the loader with `bootefi` ([U-Boot](u-boot.md)).

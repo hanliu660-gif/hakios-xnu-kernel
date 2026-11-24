@@ -14,8 +14,10 @@
 | sysimage 提取脚本 | 本仓库 sysimage/（已 track） |
 | theos + iPhoneOS16.5.sdk + Linux 工具链 | xnu-deps/setup.sh 全自动（SDK 走 github.com/theos/sdks sparse-checkout） |
 | IPSW iPhone10,3,iPhone10,6_16.5_20F66 | 自己下载，6 165 698 198 B（Apple 官方） |
-| **SILICIUM_UEFI_psyche.fd** | **不可再生**（Mu-Silicium psyche 变体的编译产物，源树已不在）——本仓库 prebuilt/ 已收 |
-| **BootShim.bin / device-tree.dtb** | 不可再生 —— 同上已收 |
+| **SILICIUM_UEFI_psyche.fd** | 本仓库 `devices/psyche/prebuilt/` 已收（3,145,728 B，md5 `513fa373`） |
+| **SILICIUM_UEFI.fd**（thyme 变体，实机成功款） | 本仓库 `devices/redwood/prebuilt/` 已收（md5 `2acd6396`） |
+| **device-tree.dtb** | psyche 自己的设备树，本仓库 `devices/psyche/prebuilt/` 已收（842,746 B，md5 `9daef336`）；也可 `adb pull /sys/firmware/fdt` 重取 |
+| **BootShim.bin** | 由 `device/redwood/prebuilt/BootShim-src/` 现编（`Makefile` 在仓库里，`FD_BASE` 传参） |
 
 ## 1. 环境一台新机器
 
@@ -24,6 +26,9 @@
   git clone --recursive https://github.com/theos/theos.git 到 $HOME/theos，
   工具链 toolchain/linux/iphone 由 its setup 装）。
 - 自检：bash tools/doctor.sh —— 要求 "theos with the iPhoneOS 16.5 SDK and the cctools linker"。
+- theos 的 Linux 工具链不是 `git clone --recursive` 自带的：clone 完还要跑 `bash ~/theos/bin/install-theos`，
+  它按平台装 `toolchain/linux/iphone`（cctools）并把 SDK 收进 `sdks/`。install-theos 拒绝以 root 运行，要用普通用户；
+  装完 `/root/theos/toolchain/linux/iphone/bin/ld` 必须存在，否则 `xnu-deps/setup.sh` 第 104 行会 die。
 - 编内核前：export DSYMUTIL=/root/theos/toolchain/linux/iphone/bin/dsymutil
   （缺它 MakeInc.cmd 报 --minimize: command not found / MakeInc.kernel:131: Error 127）。
 - Windows 侧：platform-tools（fastboot/adb）；跑机时 adb kill-server 先（抢 5037 会让 fastboot boot 报 AdbWriteEndpointSync failed）。
@@ -59,10 +64,12 @@ WSL（BootShim 现编要 clang/llvm-objcopy；实机验证过的默认值不用�
     cd xnuloader && bash build.sh           # -> loader.efi（identity.h 已在则直接编）
     cd .. && export CC=/usr/bin/clang-18 OBJCOPY=/usr/bin/llvm-objcopy-18
     python3 mkxnuimg-psyche.py -o xnu.img   # psyche 专用打包器（FD_BASE=0x9FC00000）
-    # 默认 FD = prebuilt/SILICIUM_UEFI.fd（thyme，11-03/11-24 实机成功款，md5 2acd6396）；
-    # psyche 变体 FD = SILICIUM_UEFI_psyche.md5 513fa373，用 --fd 换上做诊断。
+    # 默认 FD = devices/redwood/prebuilt/SILICIUM_UEFI.fd（thyme，11-03/11-24 实机成功款，md5 2acd6396）；
+    # psyche 变体 = devices/psyche/prebuilt/SILICIUM_UEFI_psyche.fd（md5 513fa373），用 --fd 换上做诊断。
+    # DTB 默认 devices/psyche/prebuilt/device-tree.dtb（psyche 自己的，md5 9daef336）。
     # 已逐段对比黄金参照（顶层 11-03 xnu.img）：shim/FD/DTB/ramdisk 全等。
-    # mkxnuimg.py（redwood 默认 FD_BASE=0x9FD00000）打出的镜像 psyche 不要用。
+    # mkxnuimg.py 与 mkxnuimg-psyche.py 的 FD_BASE 都是 0x9FC00000（redwood 的 0x9FD00000 是过时说法，
+    # 见 mkxnuimg.py:20）；两者的差别在 DTB 的来源与 FD 的默认值，不在基址。
 
 ## 6. 跑机（= STATUS.md 配方，此处为完整抄录）
 

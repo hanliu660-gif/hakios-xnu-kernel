@@ -1,6 +1,7 @@
-Built 2026-10-25 22:53 from this tree.
-
-03e794e8e1d389a6abb9bcd2431eaccf9747271ff8c1234922225718c70441e9  prebuilt/hakios-kernel
+# The sums of what prebuilt/ and devices/*/prebuilt/ carry, as they are in this checkout. `sha256sum -c`
+# in the repository's root. The two actuated files a packer regenerates (BootShim.bin, the UEFI FD) change with the
+# build; these are the ones to reproduce against.
+b99cc5269d9583e2d09cc7285e3e02d2fcd12db85374ec208800b5b37d4509b3  prebuilt/hakios-kernel
 6a3c19abc1db01a367bf78863fea288f621683edf31059731a78a77040ffe034  prebuilt/loader.efi
 932c856c04e87611b16c872da37c461d572c6258da0202ecd875d91c29886e03  prebuilt/userland/HakiosAudio
 45bffe2da6b2484836bd29074b39bd5cc67b4cdaa253c2aa39561ce5188d6ddc  prebuilt/userland/child
@@ -20,8 +21,13 @@ da392e632eb6978164c4c191b73773cf4ceac2c288d1b9697d35fd1f938f73f3  prebuilt/userl
 f77e716ee21d3e4ec87c1b1368ca0b02ae48f4cefd8a08040a6704511580da5e  prebuilt/userland/stage0
 fe6a0e4e8e07ae59c54868924c67f59624aec8f357b040601421f01fb27e3c6b  prebuilt/userland/surf_test
 09b99d850745193689d765bb5871328d03279b479619a775ea8b7810568de2f9  prebuilt/userland/svc_test
-c25b95de00e4b2dffa5e1ede1810ff80e29b61f6cc39dc1ae2286620902acd20  devices/redwood/prebuilt/BootShim.bin
-d1c0c4a33fb10cda3e034b09e082fdd8fd68465405c883143f21286972ac21ec  devices/redwood/prebuilt/SILICIUM_UEFI.fd
-ee93220116d7f59664edf41f43dfae69d036f26faa21e55f9e5ba3c1187f6cef  devices/redwood/prebuilt/device-tree.dtb
 55037fd1a6d6cd861add76c2083d5d4321373bf714acae3f6a40deb004c27d47  devices/redwood/prebuilt/mkbootimg.py
 b5a2c96250612366ea272ffac6d9744aaf4b45aacd96aa7cfcb931ee3b558259  devices/redwood/prebuilt/ramdisk
+3d2f1118409c14c04e5467105670178ace3428f3a38640251fb216add63e7244  devices/redwood/prebuilt/BootShim.bin
+f51bd28a2c7a345fdec16c0e62e777d936812365b7b6edd82a1adadf1c4c01ca  devices/redwood/prebuilt/SILICIUM_UEFI.fd
+55037fd1a6d6cd861add76c2083d5d4321373bf714acae3f6a40deb004c27d47  devices/redwood/prebuilt/mkbootimg.py
+b5a2c96250612366ea272ffac6d9744aaf4b45aacd96aa7cfcb931ee3b558259  devices/redwood/prebuilt/ramdisk
+fbc090bd506e4e718ec10b47c9895a202fb793a24221d0d1b67d455d289f629c  devices/psyche/prebuilt/SILICIUM_UEFI_psyche.fd
+52419059d4c668ba6d79ae3cbeb58568b0091d936875d4f23ba454df8ced4c9d  devices/psyche/prebuilt/device-tree.dtb
+009e5b0af671f96b250c2fc964cd37fe0e76238e36e496067bc415a45ba2d1c6  run-payload.bin
+2fc590ff650b9b798afb14ea2da02ef5ae6f8caa0a3c1a9f8b8d8fc914941a21  userland/root.apfs

@@ -9,3 +9,9 @@
 # the context lines of its hunks carry them (BootManager.c, BootManagerLib.inf). Turning them into LF
 # would make the patch fail to apply.
 *.patch -text
+
+# A driver package is signed as bytes: the .cat holds a hash of the .inf, and Windows compares them
+# before it loads the driver. Converting an INF's line endings makes it fail with "the third-party
+# INF does not contain digital signature information" -- which is a confusing way to learn that a
+# file was rewritten. Nothing under tools/windows-usb-driver/ is text to git.
+tools/windows-usb-driver/** -text

@@ -28,6 +28,11 @@
 !/docs/
 !/xl
 !/mkxnuimg.py
+# the recipe the phone booted with: the payload itself, its command line, and the version string
+!/run-to-desktop.sh
+!/run-payload.bin
+!/payload-cmdline.txt
+!/kernel.ver
 !/mkxnuimg-psyche.py
 !/xnu-build.sh
 !/xnu-env.sh
@@ -127,6 +132,11 @@ __pycache__/
 # psyche 复现必需且不可再生的跑机件（replica.md §0）
 !/devices/redwood/
 !/devices/redwood/prebuilt/
+# psyche's own prebuilt layer: the packer (mkxnuimg-psyche.py) looks here, and a directory that is not
+# let through first takes its whitelisted children with it.
+!/devices/psyche/
+!/devices/psyche/prebuilt/
+!/devices/psyche/prebuilt/BootShim-src/
 !/devices/*/prebuilt/SILICIUM_UEFI_psyche.fd
 !/devices/*/prebuilt/SILICIUM_UEFI.fd
 !/devices/*/prebuilt/BootShim.bin

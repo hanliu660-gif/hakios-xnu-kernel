@@ -36,7 +36,7 @@ FD_SIZE = 0x300000
 PAYLOAD_BASE = 0xF0000000
 PAYLOAD_MAX = 0x04000000
 
-DTB = os.path.join(ROOT, 'devices', 'redwood', 'prebuilt', 'device-tree.dtb')  # psyche.dtb md5 9daef336
+DTB = os.path.join(ROOT, 'devices', 'psyche', 'prebuilt', 'device-tree.dtb')  # psyche.dtb md5 9daef336
 # 11-03/11-24 实机成功的镜像用的是 thyme FD（≡ redwood 的 SILICIUM_UEFI.fd，md5 2acd6396）；psyche FD 作诊断备选
 FD = os.path.join(ROOT, 'devices', 'redwood', 'prebuilt', 'SILICIUM_UEFI.fd')
 
@@ -48,13 +48,13 @@ args = ap.parse_args()
 
 FD = args.fd
 
-shim_dir = os.path.join(ROOT, 'devices', 'redwood', 'prebuilt', 'BootShim-src')
+shim_dir = os.path.join(ROOT, 'devices', 'psyche', 'prebuilt', 'BootShim-src')
 for name, path in {
     'fd': FD,
     'dtb': DTB,
     'shim': os.path.join(shim_dir, 'BootShim.S'),
-    'ramdisk': os.path.join(ROOT, 'devices', 'redwood', 'prebuilt', 'ramdisk'),
-    'mkbootimg': os.path.join(ROOT, 'devices', 'redwood', 'prebuilt', 'mkbootimg.py'),
+    'ramdisk': os.path.join(ROOT, 'devices', 'psyche', 'prebuilt', 'ramdisk'),
+    'mkbootimg': os.path.join(ROOT, 'devices', 'psyche', 'prebuilt', 'mkbootimg.py'),
 }.items():
     if not os.path.isfile(path):
         sys.exit(f'mkxnuimg-psyche: {name} 不存在: {path}')

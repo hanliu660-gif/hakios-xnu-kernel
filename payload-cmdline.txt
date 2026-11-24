@@ -1,0 +1,1 @@
+loader_return_after=240 epoch=1795465349 sb_delay=8 touchscreen=1 bootcpu=7 cpus=8 cpufreq=1 gpu=1 battery=1 battery_pmic=1 fb_ca_hz=120

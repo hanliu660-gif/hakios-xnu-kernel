@@ -17,6 +17,32 @@ and **120 frames a second has not been reached**. [Metal on the Adreno](docs/ref
 Start with [Getting started](docs/getting-started/index.md), [On the phone](docs/getting-started/phone.md) or
 [Port a device](docs/porting/index.md). What works, part by part: [the documentation's front page](docs/index.md#what-works).
 
+## Xiaomi 12X (psyche) — from fastboot to the home screen
+
+This branch carries a complete, **verified on hardware** path for the Xiaomi 12X (psyche, SM8250-AC / kona): the
+kernel, the UEFI image, the root image, the payload the phone booted with, and the drivers that make the GPU,
+the touch screen and the battery work. Nothing is flashed; the whole system runs from RAM.
+
+- **[From fastboot to the desktop](docs/boot-to-desktop.md)** — the five commands, what each one does, what
+  success looks like, and eight failure modes with their cause.
+- **[The Windows USB driver](docs/usb-driver.md)** — `fastboot` needs one that ships no Windows; the package is
+  in `tools/windows-usb-driver/`. **Without it the phone is invisible and nothing else can be tried.**
+- **[Design notes](docs/NOTES.md)** — why the boot chain has three stages, five decisions, nine traps.
+- **[Links](docs/LINKS.md)** — the IPSW (the one large file you download yourself), theos, the SDK, the tools.
+- **[replica.md](docs/replica.md)** — the eight-step chain from an IPSW to a booting phone.
+- **[psyche-dependencies.md](docs/psyche-dependencies.md)** — what is ours, what is somebody else's and at which
+  version, and the two things you must bring yourself.
+- **[STATUS.md](STATUS.md)** — every claim with the log line it came from.
+
+The payload in `run-payload.bin` is byte-identical to the one that booted
+(`kernel.ver=2.3.4-hakios-darwin22.5-g252e6c7b`), and is rebuilt from this repository alone:
+
+```sh
+python3 xnuloader/mkpayload.py -o run-payload.bin \
+  kernel=prebuilt/hakios-kernel ramdisk=userland/root.apfs \
+  --cmdline "$(cat payload-cmdline.txt)" --kernel-version "$(cat kernel.ver)"
+```
+
 ## Repositories
 
 | Repository | Contents |
