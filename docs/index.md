@@ -43,6 +43,7 @@ on the Adreno 642L, at 100 to 104 frames a second in page swipes on a 120 Hz pan
 | [Development notes](ru/notes.md) | the old README, whole: the history of the work, in Russian |
 | [Devices](devices/index.md) | how far each part works, device by device: [redwood](devices/redwood.md), [QEMU](devices/qemu.md) |
 | [Cellular](cellular.md) | the modem's bring-up ([in Russian](ru/cellular.md)) |
+| [Wi-Fi: how far it got](wifi-progress.md) | the radio, the link, QMI and HTC through; where `wmi_wait_for_unified_ready` stops it; what was measured and ruled out |
 | [Driver reviews](driver-review/README.md) | each driver read for what it does and what was and was not verified |
 | [Network review](net-review.md) | the network stack, read the same way |
 

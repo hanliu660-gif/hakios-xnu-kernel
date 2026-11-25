@@ -93,8 +93,8 @@ launchd → SpringBoard → 桌面
 md5sum prebuilt/hakios-kernel          # 期望 0b7957f0b463e9dd30a5db808c97a477
 strings -a prebuilt/hakios-kernel | grep -c 'hakios\.'   # 期望 19
 
-# 触摸驱动在不在（老内核缺这个）
-strings -a prebuilt/hakios-kernel | grep -c psyche_touch  # 期望 2
+# 触摸驱动在不在（老内核缺这个：0；这颗 404）
+strings -a prebuilt/hakios-kernel | grep -c psyche_touch  # 期望 404
 
 # UEFI 素材
 md5sum devices/psyche/prebuilt/SILICIUM_UEFI.fd         # 2acd6396（thyme）

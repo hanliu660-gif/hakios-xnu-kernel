@@ -132,29 +132,41 @@ battery: SOC=71%, V=4045 mV, I=472 mA, T=30 C, battery=1 charger=1 charging=1 ac
 - 桌面上 **Weather / Calendar 两个 widget 是空白白块**（截图 `run-055.png` / `run-135.png` 可见）。缺的是 widget 的数据源进程，与 GPU/触摸/电池三条驱动无关。
 - 桌面翻页正常（`run-135.png` 是触摸翻到第二页后截的），说明触摸事件真的进了 WindowServer。
 
-## 5. WiFi —— 只跑通了一部分（用户 11-24 04:33 的原话是对的）
+## 5. WiFi —— 走到 WMI unified ready 为止
 
-以 `docs/交接文档.md` §47.2（11-06 定论）为准，分阶段：
+**完整的分阶段状态、深度排名、负结论、复跑命令：[docs/wifi-progress.md](docs/wifi-progress.md)。**
+这一节只留摘要，以及三条此前写错、2026-11-25 已更正的结论。
 
 | 阶段 | 状态 | 证据 |
 |---|---|---|
 | PCIe / QRTR | ✅ | 枚举 1–18、SMMU 上下文、QRTR 双向通信 |
 | QMI | ✅ | `IND_REGISTER`→`HOST_CAP`→`RESPOND_MEM`→board→M3；读到 `WLAN.HST.1.0.1.r1-01134-QCAHSTSWPL_SILICONZ-1.586138.2.619465.3` |
-| 冷启动校准 mode 7 | ⚠️ | 12 次跑机只有 1 次被接受（`061152` CAL DONE + READY） |
-| 校准后 restart | ⚠️ | SMMU 幂等 bug 已修（`fc7d35c`），修完还没跑到这一步 |
-| mode 0 → HTC → `en0` | ⛔ | **从未到达** |
+| 冷启动校准 mode 7 | ⚠️ 抽签 | 约 1/3 命中；命中后固件基本不再崩 |
+| 校准后 restart | ✅ 走通过 | `015551` / `035159`：`cal_done 1` → OFF(4) → 第二会话 `cal_done 1` |
+| HTC / HTT / WMI connect / mac_allocate / REO / WMI init cmd | ✅ 穿过 | `005222`、`222902` 比 `223743` 多走 9 步 |
+| **`wmi_wait_for_unified_ready`** | ⛔ **卡在这里** | `failed to receive wmi unified ready event: -60`，距 bus started 5.004 s |
+| `en0` | ⛔ 从未到达 | 同上 |
 
-固件自断言原文：`fw log 0x2ffe80: Asserted in0x1570b70s:1979`（`0x1570b70` = 返回地址，`1979` = 行号）。
-同一份输入三种失败形态随机出现 → 是**竞态**，不是参数错。
+### 三条此前写错、现已更正
 
-### 跑 WiFi 的条件
+1. **不是"停在 QMI"，也不是"停在 HTC"。** QMI 早通，HTC 至少两次穿过；
+   卡点是 WMI 层 —— 固件不答 `WMI_INIT_CMD` 的 unified ready 事件。
+2. **内核不需要"先重编"才含 WiFi 固件。** `prebuilt/hakios-kernel` 里逐字节核对（2026-11-25）：
+   AMSS `amss20.bin` 整份 4,352,144 B 在核内偏移 `161416`；M3 266,684 B 在 `4513568`；
+   board 数组 `hakios_wlanfw_board_count = 21`（不是 47），合计 1,215,824 B；
+   Mach-O 符号表里 `_ath11k*` 669 个、`_lx_*` 95 个。**这颗就是能跑 WiFi 的那颗。**
+3. **`_work/run-wifi-ath11k.sh` 不在仓库里**，也不在本机。跑 WiFi 的完整命令见
+   [wifi-progress.md](docs/wifi-progress.md) 第 9 节。
 
-- 内核必须**重编**（当前 `hakios-kernel.full-1119` 不含 AMSS/WLAN 固件）。11-24 新增 `drivers/wifi/hakios.amss.c`（内嵌 `amss20.bin` 4,352,144 B，9 段 × 524,288，首段 SBL 走 BHI、整份走 BHIe）与 `drivers/wifi/hakios.wlanfw.c`（47 个 board 文件 + M3）。
-- cmdline 要带 `pcie=1`，`cpus=2`，以及 `wifi_mac=02:00:00:12:34:56`。
-- 现成脚本：`_work/run-wifi-ath11k.sh`（`CPUS=2 SECS=240 EXTRA="wifi_mac=02:00:00:12:34:56"`）。
+### 跑 WiFi 的硬性条件
 
-今天这两轮**WiFi 一动没动**：日志里只有 launchd 的
-`pending spawn, domain in on-demand-only mode: com.hakios.wifi / com.apple.wifid`，`pcie:` 行数为 0 —— 因为 cmdline 没带 `pcie=1`。
+- cmdline：`pcie=1 cpus=2 bootcpu=7 wifi_mac=02:00:00:12:34:56 wifi_ini_cfg=3 wifi_mode_delay=200 wifi_cal_delay=20`
+- **`wifi_mac` 是硬性的**：全部 536 轮里，没有它的 432 轮 mode 0 一次都没到过。
+- **`wifi_ini_cfg` 必须带 CFG 位**（=2 或 3）：发了 CFG 的 8 轮有 3 轮进入深处，没发的 520 轮 0 轮。
+- **`EXTRA` 是整体替换不是追加**，少写一个键就等于退回缺省值。
+
+2026-11-25 跑到桌面的那两轮**WiFi 一动没动**：日志里 `pcie:` 与 `wifi:` 行数都是 0 ——
+cmdline 里没有 `pcie=1`，也没有 `wifi_mac`。
 
 ## 6. 被推翻的旧结论（这就是要清掉的那批）
 

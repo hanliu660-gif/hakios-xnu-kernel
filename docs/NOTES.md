@@ -118,18 +118,26 @@ loader 的内存窗口/页表状态只能用一次。想再跑必须先 `fastboo
 
 ## 4. WiFi 走到哪了（诚实版）
 
+完整版：[wifi-progress.md](wifi-progress.md)。这里只留摘要。
+
 | 阶段 | 状态 | 证据 |
 | --- | --- | --- |
 | PCIe 枚举 / SMMU / QRTR 双向 | ✅ | 1–18 号设备枚举，QRTR 收发正常 |
 | QMI 握手 → 读固件版本 | ✅ | `WLAN.HST.1.0.1.r1-01134-QCAHSTSWPL_SILICONZ-1.586138.2.619465.3` |
-| `mode 7` 冷启动校准 | ⚠️ 12 次跑机成功 1 次 | 唯一一次 `CAL DONE + READY` |
-| 校准后 restart | ⚠️ | SMMU 幂等 bug 已修（`fc7d35c`），修完还没跑到 |
-| `mode 0` → HTC → `en0` | ⛔ 从未到达 | 固件自断言 `fw log 0x2ffe80: Asserted in 0x1570b70s:1979` |
+| `mode 7` 冷启动校准 | ⚠️ 约 1/3 命中 | `cal_done 1`；命中后固件基本不再崩 |
+| 校准后 restart | ✅ 走通过 | `015551` / `035159` |
+| HTC / HTT / WMI connect / mac_allocate / REO / WMI init cmd | ✅ 穿过 | `005222`、`222902` |
+| `wmi_wait_for_unified_ready` | ⛔ **卡在这里** | `failed to receive wmi unified ready event: -60`（5.004 s） |
+| `mode 0` → `en0` | ⛔ 从未到达 | 同上 |
 
-判断是**竞态**而不是参数错的依据：同样的输入，三种失败形态随机出现。
-另外这套 WiFi 需要重编内核（`drivers/wifi/hakios.amss.c` 把 4.3 MB 的 `amss20.bin` 编进去了，
-因为 radio 比任何 ramdisk 都早启动），本包的内核是 11-19 那份，**不含** amss——
-要跑 WiFi 得先按 `docs/replica.md` 重编。
+> **2026-11-25 更正（两处）**
+>
+> 1. **不是"停在 QMI/HTC"** —— QMI 早通，HTC 至少两次穿过；真实的墙是
+>    WMI 层的 unified ready。
+> 2. **"本包内核不含 amss"是错的。** 逐字节核对 `prebuilt/hakios-kernel`：
+>    AMSS 4,352,144 B 在偏移 `161416`，M3 266,684 B 在 `4513568`，
+>    board 数组 21 个共 1,215,824 B，符号表里 `_ath11k*` 669 个。
+>    **这颗内核已经带着跑 WiFi 需要的一切**，缺的只是 cmdline 上的参数。
 
 ---
 

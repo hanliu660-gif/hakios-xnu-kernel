@@ -99,5 +99,7 @@ WSL（BootShim 现编要 clang/llvm-objcopy；实机验证过的默认值不用�
 ## 8. 已知缺口
 
 - Weather / Calendar widget 空白。
-- WiFi 停在 QMI（§52：WMI unified ready 没等到）；跑 WiFi 线要 pcie=1 + cpus=2 + wifi_mac=…
-  + 重编带 amss 的内核（docs/交接文档.md §51/§52）。
+- WiFi 停在 **WMI unified ready**（不是 QMI）：固件收下 `WMI_INIT_CMD` 却不回事件，
+  5.004 s 超时。跑 WiFi 线要 `pcie=1 cpus=2 wifi_mac=…(硬性) wifi_ini_cfg=2|3`；
+  内核**不用重编** —— `prebuilt/hakios-kernel` 已含 AMSS / M3 / 21 个 board / 完整 ath11k。
+  全部细节与复跑命令：[wifi-progress.md](wifi-progress.md)。
