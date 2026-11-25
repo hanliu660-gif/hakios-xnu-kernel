@@ -46,6 +46,7 @@ on the Adreno 642L, at 100 to 104 frames a second in page swipes on a 120 Hz pan
 | [Wi-Fi: how far it got](wifi-progress.md) | the radio, the link, QMI and HTC through; where `wmi_wait_for_unified_ready` stops it; what was measured and ruled out |
 | [Building the kernel here](selfbuild.md) | the three things this machine needed to compile XNU at all, and what the built kernel differs from the one that boots |
 | [Where the built kernel dies](kernel-death-and-usb-debug.md) | measured: before `machine_startup`'s first C statement, and the SM8250 USB-debug module that solves exactly this on the same SoC |
+| [Audits: why it does not start](audit/README.md) | three parallel audits — what is ruled out, what the upstream project has that this tree lacks, and the function-by-function comparison of the two kernels |
 | [Driver reviews](driver-review/README.md) | each driver read for what it does and what was and was not verified |
 | [Network review](net-review.md) | the network stack, read the same way |
 
